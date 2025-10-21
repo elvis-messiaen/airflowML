@@ -1,0 +1,19 @@
+ # Airflow
+  logs/
+  airflow.db
+  airflow-webserver.pid
+  *.log
+
+  # Python
+  __pycache__/
+  *.py[cod]
+  .venv/
+
+  # Environment
+  .env
+  cookies.txt
+
+  # IDE
+  .idea/
+
+  ---
