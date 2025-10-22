@@ -7,8 +7,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
-WORKING_DIR = "/opt/airflow/working_data"
-MODEL_DIR = "/opt/airflow/model"
+# Chemins relatifs au projet local au lieu de /opt/airflow/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+WORKING_DIR = os.path.join(BASE_DIR, "working_data")
+MODEL_DIR = os.path.join(BASE_DIR, "model")
 os.makedirs(WORKING_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 

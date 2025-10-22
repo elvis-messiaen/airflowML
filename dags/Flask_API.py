@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+import socket
 import pendulum
 import requests
 from airflow import DAG
@@ -10,10 +11,11 @@ from airflow.providers.standard.operators.python import PythonOperator
 from flask import Flask, redirect, render_template
 
 # ---------- Config (Airflow 3: use REST with Basic Auth via FAB API backend) ----------
-WEBSERVER = os.getenv("AIRFLOW_WEBSERVER", "http://airflow-apiserver:8080")
+WEBSERVER = os.getenv("AIRFLOW_WEBSERVER", "http://localhost:8080")
 AF_USER   = os.getenv("AIRFLOW_USERNAME", os.getenv("_AIRFLOW_WWW_USER_USERNAME", "airflow"))
 AF_PASS   = os.getenv("AIRFLOW_PASSWORD", os.getenv("_AIRFLOW_WWW_USER_PASSWORD", "airflow"))
 TARGET_DAG_ID = os.getenv("TARGET_DAG_ID", "Airflow_Lab2")
+FLASK_PORT = int(os.getenv("FLASK_PORT", "5555"))
 
 # ---------- Default args ----------
 default_args = {
@@ -78,14 +80,95 @@ def failure():
 def health():
     return "ok", 200
 
+
+def verifier_port_disponible(port):
+    """
+    Vérifie si un port est disponible pour écouter.
+
+    Args:
+        port (int): Numéro du port à vérifier
+
+    Returns:
+        bool: True si le port est disponible, False sinon
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+
+    try:
+        # Tente de se connecter au port
+        resultat = sock.connect_ex(('localhost', port))
+        sock.close()
+
+        # Si la connexion réussit (code 0), le port est occupé
+        return resultat != 0
+    except Exception as e:
+        print(f"Erreur lors de la vérification du port {port}: {e}", flush=True)
+        return False
+
+
+def tester_api_existante(port):
+    """
+    Teste si une API Flask est déjà en cours d'exécution sur le port.
+
+    Args:
+        port (int): Numéro du port à tester
+
+    Returns:
+        bool: True si l'API répond correctement, False sinon
+    """
+    try:
+        response = requests.get(f"http://localhost:{port}/health", timeout=2)
+        return response.status_code == 200 and response.text == "ok"
+    except Exception:
+        return False
+
+
 def start_flask_app():
     """
-    Run Flask dev server in-process; task intentionally blocks to keep API alive.
-    Disable reloader to avoid forking inside Airflow worker.
+    Démarre le serveur Flask en gérant les cas où le port est déjà utilisé.
+
+    Cette fonction :
+    - Vérifie si le port est disponible
+    - Si le port est occupé, teste si c'est notre API qui tourne déjà
+    - Si notre API tourne, maintient la tâche active sans redémarrer
+    - Sinon, affiche une erreur claire
+    - Démarre Flask si le port est libre
     """
-    print("Starting Flask on 0.0.0.0:5555 ...", flush=True)
-    app.run(host="0.0.0.0", port=5555, use_reloader=False)
-    # If app.run ever returns, keep the task alive:
+    print(f"Vérification de la disponibilité du port {FLASK_PORT}...", flush=True)
+
+    if not verifier_port_disponible(FLASK_PORT):
+        print(f"Le port {FLASK_PORT} est déjà utilisé.", flush=True)
+
+        # Vérifie si c'est notre API qui tourne déjà
+        if tester_api_existante(FLASK_PORT):
+            print(f"L'API Flask est déjà en cours d'exécution sur le port {FLASK_PORT}.", flush=True)
+            print("La tâche va maintenir l'exécution active.", flush=True)
+
+            # Maintient la tâche active tant que l'API répond
+            while True:
+                time.sleep(30)
+                if not tester_api_existante(FLASK_PORT):
+                    print("L'API Flask ne répond plus. Arrêt de la tâche.", flush=True)
+                    raise RuntimeError("L'API Flask s'est arrêtée de manière inattendue")
+        else:
+            erreur_msg = (
+                f"Le port {FLASK_PORT} est occupé par un autre processus.\n"
+                f"Utilisez 'lsof -i :{FLASK_PORT}' pour identifier le processus,\n"
+                f"puis 'kill -9 <PID>' pour l'arrêter."
+            )
+            print(erreur_msg, flush=True)
+            raise RuntimeError(erreur_msg)
+
+    print(f"Démarrage de Flask sur 0.0.0.0:{FLASK_PORT}...", flush=True)
+
+    try:
+        app.run(host="0.0.0.0", port=FLASK_PORT, use_reloader=False)
+    except Exception as e:
+        print(f"Erreur lors du démarrage de Flask: {e}", flush=True)
+        raise
+
+    # Si app.run retourne (normalement il ne devrait jamais), maintient la tâche active
+    print("Flask s'est arrêté de manière inattendue. Maintien de la tâche active...", flush=True)
     while True:
         time.sleep(60)
 

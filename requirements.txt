@@ -1,7 +1,12 @@
 apache-airflow
 dvc[gs]
-flask
 scikit-learn
 scipy
 pandas
 numpy
+fastapi
+uvicorn
+httpx
+pydantic
+python-multipart
+joblib
